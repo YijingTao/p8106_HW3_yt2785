@@ -1,0 +1,154 @@
+---
+title: "p8106 hw3"
+author: "Yijing Tao yt2785"
+date: '2022-03-16'
+output: word_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r message=FALSE, warning=FALSE}
+library(tidyverse)
+library(readxl)
+library(ISLR)
+library(glmnet)
+library(caret)
+library(corrplot)
+library(plotmo)
+library(mgcv)
+library(earth)
+library(mlbench)
+library(pROC)
+library(pdp)
+library(vip)
+library(AppliedPredictiveModeling)
+library(lattice)
+library(MASS)
+library(klaR)
+```
+
+```{r}
+auto_df = read_csv("./auto.csv") %>% 
+  data.frame() %>% 
+  na.omit() 
+
+auto_df2 <- model.matrix(mpg_cat ~ ., auto_df)[ ,-1]
+
+set.seed(2022)
+trainRows <- createDataPartition(auto_df$mpg_cat, p = .7, list = F)
+
+# matrix of predictors (glmnet uses input matrix)
+x1 <- auto_df2[trainRows,]
+# vector of response
+y1 <- auto_df$mpg_cat[trainRows]
+train <- auto_df[trainRows,]
+
+# matrix of predictors (glmnet uses input matrix)
+x2 <- auto_df2[-trainRows,]
+# vector of response
+y2 <- auto_df$mpg_cat[-trainRows]
+test <- auto_df[-trainRows,]
+
+ctrl <- trainControl(method = "repeatedcv", repeats = 5,
+                     summaryFunction = twoClassSummary,
+                     classProbs = TRUE)
+
+```
+
+## a) Produce some graphical or numerical summaries of the data.
+
+```{r}
+theme1 <- transparentTheme(trans = .4)
+trellis.par.set(theme1)
+
+featurePlot(x = train[,1:7], 
+            y = train[,8],
+            scales = list(x = list("free"), 
+                          y = list("free")),
+            plot = "density",
+            pch = "|", 
+            auto.key = list(title = "mpg_cat", columns = 2))
+```
+
+## b) Perform a logistic regression using the training data. Do any of the predictors appear to be statistically significant? If so, which ones? Compute the confusion matrix and overall fraction of correct predictions using the test data. Briefly explain what the confusion matrix is telling you.
+
+```{r}
+glmnGrid <- expand.grid(.alpha = seq(0, 1, length = 21),
+                        .lambda = exp(seq(-5, 3, length = 50)))
+
+set.seed(2022)
+model.glm <- train(x = train[,1:7], 
+                   y = train[,8],
+                   method = "glmnet",
+                    tuneGrid = glmnGrid,
+                    metric = "ROC",
+                    trControl = ctrl)
+
+model.glm$bestTune
+
+myCol <- rainbow(25)
+myPar <- list(superpose.symbol = list(col = myCol),
+              superpose.line = list(col = myCol))
+
+plot(model.glm, par.settings = myPar, xTrans = function(x) log(x))
+```
+
+## c) Train a multivariate adaptive regression spline (MARS) model using the training data.
+
+```{r}
+set.seed(2022)
+model.mars <- train(x = train[,1:7], 
+                    y = train[,8],
+                    method = "earth",
+                    tuneGrid = expand.grid(degree = 1:4, 
+                                           nprune = 2:20),
+                    metric = "ROC",
+                    trControl = ctrl)
+
+plot(model.mars)
+
+coef(model.mars$finalModel) 
+
+vip(model.mars$finalModel)
+```
+
+## d)Perform LDA and QDA using the training data. Plot the linear discriminants in LDA.
+
+```{r}
+set.seed(2022)
+model.lda <- train(x = train[,1:7], 
+                    y = train[,8],
+                   method = "lda",
+                   metric = "ROC",
+                   trControl = ctrl)
+
+summary(model.lda$finalModel)
+
+plot(model.lda$finalModel)
+```
+
+```{r}
+set.seed(2022)
+model.qda <- train(x = train[,1:7], 
+                    y = train[,8],
+                   method = "qda",
+                   metric = "ROC",
+                   trControl = ctrl)
+
+summary(model.qda$finalModel)
+```
+
+## e) Which model will you use to predict the response variable? Plot its ROC curve using the test data. Report the AUC and the misclassification error rate.
+
+```{r}
+res <- resamples(list(GLM = model.glm,
+                      MARS = model.mars,
+                      LDA = model.lda,
+                      QDA = model.qda))
+summary(res)
+
+bwplot(res, metric = "ROC")
+```
+**I will use MARS model since it has the highest ROC.**
